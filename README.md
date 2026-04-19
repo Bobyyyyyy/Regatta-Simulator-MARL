@@ -12,6 +12,8 @@ By implementing the **Proximal Policy Optimization (PPO)** algorithm within a [G
 
 ---
 
+![Demonstration of the project running](./example.gif)
+
 ## Features
 
 - **Multi-agent parallel environment** built on the PettingZoo `ParallelEnv` API
