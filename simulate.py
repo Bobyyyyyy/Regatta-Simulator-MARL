@@ -31,6 +31,12 @@ def run_episode(
     )
     observations, infos = env.reset()
 
+    # Seed recording with initial state for 3D
+    trajectories = {a: [list(env.trajectories[a][0])] for a in env.possible_agents}
+    headings = {a: [env.boat_states[a]['heading']] for a in env.possible_agents}
+    speeds = {a: [env.boat_states[a]['speed']] for a in env.possible_agents}
+    wind_directions = [float(env.wind_direction)]
+
     frames = []
     if render:
         frames.append(env.render())
@@ -51,6 +57,15 @@ def run_episode(
         observations, rewards, terminations, truncations, infos = env.step(actions)
         if infos:
             last_infos = infos
+
+        # Collect 3D data
+        wind_directions.append(float(env.wind_direction))
+        for a in env.possible_agents:
+            s = env.boat_states[a]
+            trajectories[a].append([float(s['x']), float(s['y'])])
+            headings[a].append(float(s['heading']))
+            speeds[a].append(float(s['speed']))
+
         if render:
             frames.append(env.render())
         step += 1
@@ -65,9 +80,88 @@ def run_episode(
         "winner": env.winner,
         "infos": last_infos,
         "env": env,
+        "trajectories": trajectories,
+        "headings": headings,
+        "speeds": speeds,
+        "wind_directions": wind_directions,
+        "target": [float(env.target[0]), float(env.target[1])],
+        "field_size": field_size,
+        "wind_speed": float(env.wind_speed),
     }
     env.close()
     return result
+
+def run_episode_3d(
+    model,
+    field_size: int = 400,
+    max_steps: int = 250,
+) -> dict:
+    """Run a single episode without rendering and collect 3D trajectory data.
+
+    Returns a dict with:
+        trajectories  - {agent: [[x, y], ...]}   (one entry per step including reset)
+        headings      - {agent: [heading_rad, ...]}
+        speeds        - {agent: [speed, ...]}
+        wind_directions - [wind_dir_rad, ...]     (one per step)
+        target        - [x, y]
+        field_size    - int
+        wind_speed    - float (initial)
+        winner        - str | None
+        steps         - int
+        infos         - last info dict
+    """
+    env = MultiAgentSailingZoo(field_size=field_size, max_steps=max_steps, render_mode=None)
+    observations, infos = env.reset()
+
+    # Seed recording with initial state
+    trajectories = {a: [list(env.trajectories[a][0])] for a in env.possible_agents}
+    headings = {a: [env.boat_states[a]['heading']] for a in env.possible_agents}
+    speeds = {a: [env.boat_states[a]['speed']] for a in env.possible_agents}
+    wind_directions = [float(env.wind_direction)]
+
+    step = 0
+    last_infos = infos
+
+    while env.agents and step < max_steps:
+        actions = {}
+        for agent_id in env.agents:
+            obs = observations[agent_id]
+            if model is not None:
+                action, _ = model.predict(obs, deterministic=True)
+            else:
+                action = env.action_space(agent_id).sample()
+            actions[agent_id] = action
+
+        observations, rewards, terminations, truncations, infos = env.step(actions)
+        if infos:
+            last_infos = infos
+
+        wind_directions.append(float(env.wind_direction))
+
+        for a in env.possible_agents:
+            s = env.boat_states[a]
+            trajectories[a].append([float(s['x']), float(s['y'])])
+            headings[a].append(float(s['heading']))
+            speeds[a].append(float(s['speed']))
+
+        step += 1
+
+    env.close()
+
+    return {
+        "trajectories": trajectories,
+        "headings": headings,
+        "speeds": speeds,
+        "wind_directions": wind_directions,
+        "target": [float(env.target[0]), float(env.target[1])],
+        "field_size": field_size,
+        "wind_speed": float(env.wind_speed),
+        "winner": env.winner,
+        "steps": step,
+        "infos": last_infos,
+        "env": env,
+    }
+
 
 def generate_videos(
     num_episodes: int = 10,

@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Regatta Simulator</title>
+    <!-- Three.js r128 — last version with working examples/js/ legacy builds -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -392,6 +395,147 @@
         .test-stat-card.highlight .lbl {
             font-size: .95rem;
         }
+        /* ── 3D tab ── */
+        .view-tabs {
+            display: flex;
+            gap: .5rem;
+            margin-bottom: 1rem;
+        }
+        .view-tab {
+            flex: 1;
+            padding: .55rem 1rem;
+            border-radius: 8px;
+            border: 1px solid #334155;
+            background: #0f172a;
+            color: #94a3b8;
+            font-size: .9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: .2s;
+            text-align: center;
+        }
+        .view-tab.active {
+            background: #1e3a5f;
+            border-color: #38bdf8;
+            color: #38bdf8;
+        }
+        .view-tab:hover:not(.active) { background: #1e293b; color: #e2e8f0; }
+
+        .view-panel { display: none; }
+        .view-panel.active { display: block; }
+
+        /* 3D canvas wrapper */
+        #canvas-3d-wrap {
+            position: relative;
+            width: 100%;
+            min-height: 500px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 2px solid #334155;
+            background: #0a1628;
+            aspect-ratio: 1 / 1;
+        }
+        #canvas-3d-wrap canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+        }
+        /* 3D HUD overlay */
+        .hud-overlay {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+        }
+        .hud-step {
+            position: absolute;
+            top: 10px; left: 12px;
+            background: rgba(15,23,42,.7);
+            color: #38bdf8;
+            font-size: .85rem;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 6px;
+            letter-spacing: .03em;
+        }
+        .hud-wind {
+            position: absolute;
+            top: 10px; right: 12px;
+            background: rgba(15,23,42,.7);
+            color: #7dd3fc;
+            font-size: .82rem;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 6px;
+        }
+        .hud-outcome {
+            position: absolute;
+            bottom: 60px; left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15,23,42,.85);
+            color: #fbbf24;
+            font-size: 1rem;
+            font-weight: 700;
+            padding: 6px 18px;
+            border-radius: 8px;
+            display: none;
+            white-space: nowrap;
+        }
+        .hud-legend {
+            position: absolute;
+            bottom: 10px; right: 12px;
+            background: rgba(15,23,42,.7);
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: .78rem;
+        }
+        .hud-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 3px;
+            color: #e2e8f0;
+        }
+        .hud-legend-dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        /* Timeline controls */
+        .timeline-controls {
+            display: flex;
+            align-items: center;
+            gap: .75rem;
+            margin-top: .75rem;
+            flex-wrap: wrap;
+        }
+        .btn-play {
+            background: #0ea5e9;
+            color: #fff;
+            flex: none;
+            padding: .5rem 1.1rem;
+            font-size: .9rem;
+        }
+        .btn-play:hover:not(:disabled) { background: #0284c7; }
+        #timeline-slider {
+            flex: 1;
+            accent-color: #38bdf8;
+            min-width: 100px;
+        }
+        .speed-label {
+            font-size: .82rem;
+            color: #94a3b8;
+            white-space: nowrap;
+        }
+        #speed-select {
+            background: #1e293b;
+            color: #e2e8f0;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            padding: 3px 6px;
+            font-size: .85rem;
+        }
     </style>
 </head>
 <body>
@@ -456,21 +600,74 @@
         <div class="card results" id="results">
             <h2>Simulation Results</h2>
             <div class="outcome-banner" id="outcome-banner"></div>
-            <div class="video-wrap">
-                <video id="sim-video" controls autoplay loop muted></video>
+
+            <!-- Tab switcher -->
+            <div class="view-tabs">
+                <div class="view-tab active" id="tab-2d" onclick="switchTab('2d')">🎬 2D Video</div>
+                <div class="view-tab" id="tab-3d" onclick="switchTab('3d')">🌊 3D Interactive</div>
             </div>
-            <table class="stats-table">
-                <thead>
-                    <tr>
-                        <th>Agent</th>
-                        <th>Avg VMG</th>
-                        <th>Triple Turns</th>
-                        <th>Max Speed</th>
-                    </tr>
-                </thead>
-                <tbody id="stats-body"></tbody>
-            </table>
+
+            <!-- 2D panel -->
+            <div class="view-panel active" id="panel-2d">
+                <div class="video-wrap">
+                    <video id="sim-video" controls autoplay loop muted></video>
+                </div>
+                <table class="stats-table">
+                    <thead>
+                        <tr>
+                            <th>Agent</th>
+                            <th>Avg VMG</th>
+                            <th>Triple Turns</th>
+                            <th>Max Speed</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stats-body"></tbody>
+                </table>
+            </div>
+
+            <!-- 3D panel -->
+            <div class="view-panel" id="panel-3d">
+                <div id="canvas-3d-wrap">
+                    <!-- Three.js canvas rendered here -->
+                    <div id="canvas-3d-inner" style="position:absolute;inset:0;z-index:1;"></div>
+                    <!-- HUD overlay sits on top -->
+                    <div class="hud-overlay" style="z-index:2;">
+                        <div class="hud-step" id="hud-step">Step 0</div>
+                        <div class="hud-wind" id="hud-wind">💨 —</div>
+                        <div class="hud-outcome" id="hud-outcome"></div>
+                        <div class="hud-legend">
+                            <div class="hud-legend-item">
+                                <div class="hud-legend-dot" style="background:#22c55e;"></div>
+                                <span>boat_0</span>
+                            </div>
+                            <div class="hud-legend-item">
+                                <div class="hud-legend-dot" style="background:#f97316;"></div>
+                                <span>boat_1</span>
+                            </div>
+                            <div class="hud-legend-item">
+                                <div class="hud-legend-dot" style="background:#ef4444;"></div>
+                                <span>Target</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="timeline-controls">
+                    <button class="btn-play" id="btn-play" onclick="togglePlay()">▶ Play</button>
+                    <input type="range" id="timeline-slider" min="0" value="0" oninput="onSliderInput(this.value)">
+                    <span class="speed-label">Speed</span>
+                    <select id="speed-select" onchange="onSpeedChange(this.value)">
+                        <option value="0.5">0.5×</option>
+                        <option value="1" selected>1×</option>
+                        <option value="2">2×</option>
+                        <option value="4">4×</option>
+                    </select>
+                </div>
+                <p id="3d-loading-msg" style="text-align:center;color:#94a3b8;font-size:.85rem;margin-top:.5rem;display:none;">
+                    <span class="spinner"></span> Loading 3D data…
+                </p>
+            </div>
         </div>
+
 
         <!-- ── Test ── -->
         <div class="card">
@@ -575,6 +772,9 @@
     }
 
     // ── Simulate ──
+    let raceData3d = null;
+    let viewer3d   = null;
+
     async function runSimulation() {
         const btn = document.getElementById('btn-sim');
         btn.disabled = true;
@@ -582,17 +782,23 @@
         setStatus('', '');
         document.getElementById('results').classList.remove('active');
         document.getElementById('sim-loader').classList.add('active');
+        switchTab('2d'); // reset to 2D tab
+
+        // Invalidate old 3D data
+        raceData3d = null;
+        if (viewer3d) { viewer3d.dispose(); viewer3d = null; }
+        document.getElementById('btn-play').textContent = '▶ Play';
 
         try {
             const res = await fetch('/simulate', { method: 'POST' });
-            const d = await res.json();
+            const d   = await res.json();
             if (d.error) throw new Error(d.error);
 
             // Show video
             const video = document.getElementById('sim-video');
             video.src = d.video_url;
 
-            // Outcome
+            // Outcome banner
             document.getElementById('outcome-banner').textContent =
                 `${d.stats.outcome}  —  ${d.stats.steps} steps`;
 
@@ -608,6 +814,9 @@
                     <td>${s.max_speed} kn</td>
                 </tr>`;
             }
+
+            // Store 3D data
+            raceData3d = d;
 
             document.getElementById('results').classList.add('active');
         } catch (e) {
@@ -714,6 +923,468 @@
     function statCard(val, lbl, highlight) {
         const cls = highlight ? 'test-stat-card highlight' : 'test-stat-card';
         return `<div class="${cls}"><div class="val">${val}</div><div class="lbl">${lbl}</div></div>`;
+    }
+
+    // ── Tab switching ──
+    function switchTab(tab) {
+        document.getElementById('tab-2d').classList.toggle('active', tab === '2d');
+        document.getElementById('tab-3d').classList.toggle('active', tab === '3d');
+        document.getElementById('panel-2d').classList.toggle('active', tab === '2d');
+        document.getElementById('panel-3d').classList.toggle('active', tab === '3d');
+
+        if (tab === '3d') {
+            if (!raceData3d) {
+                // No data yet — show helpful message
+                document.getElementById('3d-loading-msg').style.display = 'block';
+                document.getElementById('3d-loading-msg').innerHTML =
+                    '<em style="color:#f97316">Run a simulation first to see the 3D view.</em>';
+                return;
+            }
+            document.getElementById('3d-loading-msg').style.display = 'none';
+
+            if (!viewer3d) {
+                // Double rAF: let browser paint the now-visible container first
+                // so clientWidth/clientHeight are correct when Three.js reads them
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    viewer3d = new RaceViewer3D('canvas-3d-wrap', raceData3d);
+                    viewer3d.init();
+                }));
+            } else {
+                // Resize in case container dimensions changed while hidden
+                requestAnimationFrame(() => viewer3d.resize());
+            }
+        }
+    }
+
+    // ── Timeline controls ──
+    function togglePlay() {
+        if (!viewer3d) return;
+        viewer3d.togglePlay();
+        document.getElementById('btn-play').textContent =
+            viewer3d.playing ? '⏸ Pause' : '▶ Play';
+    }
+
+    function onSliderInput(val) {
+        if (!viewer3d) return;
+        viewer3d.seekToStep(parseInt(val, 10));
+    }
+
+    function onSpeedChange(val) {
+        if (!viewer3d) return;
+        viewer3d.playbackSpeed = parseFloat(val);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // Three.js 3D Race Viewer
+    // ══════════════════════════════════════════════════════════════
+    class RaceViewer3D {
+        constructor(containerId, data) {
+            this.container = document.getElementById(containerId);
+            this.data = data;
+            this.totalSteps = data.trajectories['boat_0'].length - 1;
+
+            // Playback state
+            this.playing = false;
+            this.currentStep = 0;        // integer step displayed
+            this.stepAccum  = 0;         // fractional accumulator for smooth speed
+            this.playbackSpeed = 1.0;
+            this.lastTime  = null;
+            this._rafId    = null;
+
+            // Three.js objects
+            this.renderer = null;
+            this.scene    = null;
+            this.camera   = null;
+            this.controls = null;
+            this.boatMeshes  = {};
+            this.trajLines   = {};
+            this.windArrow   = null;
+        }
+
+        init() {
+            const W = this.container.clientWidth;
+            const H = this.container.clientHeight || W;
+            const data = this.data;
+            const fs   = data.field_size;
+
+            // ── Renderer ──
+            try {
+                // First attempt: with antialiasing
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+            } catch (err) {
+                console.warn("WebGL with antialias failed, attempting without antialias...", err);
+                try {
+                    // Second attempt: without antialiasing (fixes many Linux/VM crashes)
+                    this.renderer = new THREE.WebGLRenderer({ antialias: false });
+                } catch (e) {
+                    console.error("WebGL error (both attempts failed):", e);
+                    this.container.innerHTML = `<div style="padding:2rem;color:#fca5a5;text-align:center;">
+                        <p style="font-size:1.2rem;font-weight:bold;margin-bottom:1rem;">Failed to initialize 3D view.</p>
+                        <p style="font-size:0.95rem;color:#e2e8f0;margin-bottom:1rem;">Your browser refused to create a WebGL context.</p>
+                        <div style="background:#450a0a;padding:1rem;border-radius:8px;text-align:left;font-size:0.85rem;color:#fca5a5;">
+                            <strong>Linux / VM Users Troubleshooting:</strong>
+                            <ul style="margin-top:0.5rem;margin-left:1.5rem;line-height:1.4;">
+                                <li>Ensure <strong>Hardware Acceleration</strong> is enabled in your browser settings.</li>
+                                <li><strong>Chrome/Brave/Edge:</strong> Go to <code>chrome://flags</code>, search for <strong>"Override software rendering list"</strong>, enable it, and restart the browser.</li>
+                                <li><strong>Firefox:</strong> Go to <code>about:config</code>, search for <code>webgl.force-enabled</code>, set it to <strong>true</strong>, and restart.</li>
+                            </ul>
+                        </div>
+                    </div>`;
+                    return;
+                }
+            }
+
+            this.renderer.setPixelRatio(window.devicePixelRatio);
+            this.renderer.setSize(W, H);
+            this.renderer.shadowMap.enabled = true;
+            const inner = document.getElementById('canvas-3d-inner');
+            if (inner) inner.appendChild(this.renderer.domElement);
+            else this.container.appendChild(this.renderer.domElement);
+
+            // ── Scene ──
+            this.scene = new THREE.Scene();
+            this.scene.background = new THREE.Color(0x0a1628);
+            this.scene.fog = new THREE.Fog(0x0a1628, fs * 1.2, fs * 3);
+
+            // ── Camera ──
+            this.camera = new THREE.PerspectiveCamera(50, W / H, 1, fs * 10);
+            // Position camera above the centre of the field
+            this.camera.position.set(fs / 2, fs * 0.9, fs * 0.9);
+            this.camera.lookAt(fs / 2, 0, -fs / 2);
+
+            // ── OrbitControls ──
+            if (THREE.OrbitControls) {
+                this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+                this.controls.target.set(fs / 2, 0, -fs / 2);
+                this.controls.enableDamping = true;
+                this.controls.dampingFactor = 0.06;
+                this.controls.minDistance = 40;
+                this.controls.maxDistance = fs * 2.5;
+                this.controls.maxPolarAngle = Math.PI / 2.1;
+                this.controls.update();
+            }
+
+            // ── Lighting ──
+            const ambLight = new THREE.AmbientLight(0x334466, 0.8);
+            this.scene.add(ambLight);
+            const dirLight = new THREE.DirectionalLight(0xffd580, 1.4);
+            dirLight.position.set(fs * 0.3, fs * 0.8, fs * 0.3);
+            dirLight.castShadow = true;
+            this.scene.add(dirLight);
+            // Rim light from opposite side for drama
+            const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.6);
+            rimLight.position.set(-fs, fs * 0.5, -fs);
+            this.scene.add(rimLight);
+
+            // ── Ocean floor / sea surface ──
+            this._buildOcean(fs);
+
+            // ── Field boundary grid ──
+            this._buildGrid(fs);
+
+            // ── Target marker ──
+            this._buildTarget(data.target, fs);
+
+            // ── Trajectory tubes ──
+            const agentColors = { boat_0: 0x22c55e, boat_1: 0xf97316 };
+            for (const [agent, color] of Object.entries(agentColors)) {
+                this._buildTrajectoryLine(agent, data.trajectories[agent], color, fs);
+                this._buildBoat(agent, color, fs);
+            }
+
+            // ── Wind indicator ──
+            this._buildWindArrow(fs);
+
+            // ── Init timeline slider ──
+            const slider = document.getElementById('timeline-slider');
+            slider.max   = this.totalSteps;
+            slider.value = 0;
+
+            // ── Resize observer ──
+            this._ro = new ResizeObserver(() => this.resize());
+            this._ro.observe(this.container);
+
+            // ── Go to step 0, start render loop ──
+            this.seekToStep(0);
+            this._loop(performance.now());
+        }
+
+        _buildOcean(fs) {
+            // Layered ocean planes for depth effect
+            const layers = [
+                { y: -1,   color: 0x0c2a4a, opacity: 1.0 },
+                { y: -0.3, color: 0x0e3a5e, opacity: 0.7 },
+                { y:  0,   color: 0x104060, opacity: 0.5 },
+            ];
+            layers.forEach(({ y, color, opacity }) => {
+                const geo  = new THREE.PlaneGeometry(fs * 3, fs * 3, 40, 40);
+                const mat  = new THREE.MeshStandardMaterial({
+                    color,
+                    transparent: opacity < 1,
+                    opacity,
+                    roughness: 0.1,
+                    metalness: 0.3,
+                    side: THREE.DoubleSide,
+                });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.rotation.x = -Math.PI / 2;
+                mesh.position.set(fs / 2, y, -fs / 2);
+                this.scene.add(mesh);
+            });
+
+            // Animated wave vertices stored for tick()
+            this._waveTime = 0;
+        }
+
+        _buildGrid(fs) {
+            const divisions = 10;
+            const helper = new THREE.GridHelper(fs, divisions, 0x1e3a5f, 0x1e3a5f);
+            helper.position.set(fs / 2, 0.5, -fs / 2);
+            // GridHelper may return a single material or an array — handle both
+            const mats = Array.isArray(helper.material) ? helper.material : [helper.material];
+            mats.forEach(m => { m.opacity = 0.35; m.transparent = true; });
+            this.scene.add(helper);
+        }
+
+        _buildTarget(target, fs) {
+            const tx = target[0];
+            const tz = -target[1];
+
+            // Outer glow ring
+            const ringGeo = new THREE.TorusGeometry(20, 2.5, 16, 60);
+            const ringMat = new THREE.MeshStandardMaterial({
+                color: 0xef4444,
+                emissive: 0xef4444,
+                emissiveIntensity: 1.2,
+                roughness: 0.2,
+            });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.rotation.x = -Math.PI / 2;
+            ring.position.set(tx, 1, tz);
+            this.scene.add(ring);
+
+            // Pulsing inner disc
+            const discGeo = new THREE.CircleGeometry(18, 48);
+            const discMat = new THREE.MeshStandardMaterial({
+                color: 0xef4444, transparent: true, opacity: 0.18,
+                side: THREE.DoubleSide,
+            });
+            const disc = new THREE.Mesh(discGeo, discMat);
+            disc.rotation.x = -Math.PI / 2;
+            disc.position.set(tx, 0.6, tz);
+            this.scene.add(disc);
+            this._targetDisc = disc;
+            this._targetRing = ring;
+
+            // Point light at target
+            const ptLight = new THREE.PointLight(0xef4444, 1.8, fs * 0.4);
+            ptLight.position.set(tx, 30, tz);
+            this.scene.add(ptLight);
+        }
+
+        _buildTrajectoryLine(agent, traj, color, fs) {
+            // Start with a single-point line; we'll extend it each step
+            const mat = new THREE.LineBasicMaterial({ color, opacity: 0.7, transparent: true, linewidth: 2 });
+            const geo = new THREE.BufferGeometry();
+            // Pre-allocate for all steps
+            const maxVerts = traj.length * 3;
+            const positions = new Float32Array(maxVerts);
+            positions[0] = traj[0][0]; positions[1] = 2; positions[2] = -traj[0][1];
+            geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geo.setDrawRange(0, 1);
+            const line = new THREE.Line(geo, mat);
+            this.scene.add(line);
+            this.trajLines[agent] = { line, positions, color };
+        }
+
+        _buildBoat(agent, color, fs) {
+            const group = new THREE.Group();
+
+            // Hull: elongated box
+            const hullGeo = new THREE.BoxGeometry(16, 4, 8);
+            const hullMat = new THREE.MeshStandardMaterial({ color, roughness: 0.4 });
+            const hull    = new THREE.Mesh(hullGeo, hullMat);
+            hull.castShadow = true;
+            group.add(hull);
+
+            // Mast: thin cylinder
+            const mastGeo = new THREE.CylinderGeometry(0.5, 0.5, 28, 8);
+            const mastMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.6 });
+            const mast    = new THREE.Mesh(mastGeo, mastMat);
+            mast.position.set(2, 16, 0);
+            group.add(mast);
+
+            // Sail: triangle (using custom geometry)
+            const sailGeo = new THREE.BufferGeometry();
+            const sailVerts = new Float32Array([
+                2, 28, 0,   // top
+                2,  2, 0,   // bottom
+                -14, 14, 0, // left (trailing backwards)
+            ]);
+            sailGeo.setAttribute('position', new THREE.BufferAttribute(sailVerts, 3));
+            sailGeo.computeVertexNormals();
+            const sailMat = new THREE.MeshStandardMaterial({
+                color: 0xfafafa, side: THREE.DoubleSide, roughness: 0.5, transparent: true, opacity: 0.92
+            });
+            const sail = new THREE.Mesh(sailGeo, sailMat);
+            group.add(sail);
+
+            // Emissive glow point under boat
+            const light = new THREE.PointLight(color, 1.2, 60);
+            light.position.set(0, -3, 0);
+            group.add(light);
+
+            this.scene.add(group);
+            this.boatMeshes[agent] = group;
+        }
+
+        _buildWindArrow(fs) {
+            const arrowGroup = new THREE.Group();
+
+            // Arrow cone head
+            const coneGeo = new THREE.ConeGeometry(5, 14, 8);
+            coneGeo.rotateZ(-Math.PI / 2);
+            const coneMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x38bdf8, emissiveIntensity: 0.5 });
+            const cone    = new THREE.Mesh(coneGeo, coneMat);
+            cone.position.set(10, 0, 0);
+            arrowGroup.add(cone);
+
+            // Arrow shaft
+            const shaftGeo = new THREE.CylinderGeometry(2, 2, 20, 8);
+            shaftGeo.rotateZ(-Math.PI / 2);
+            const shaftMat = new THREE.MeshStandardMaterial({ color: 0x7dd3fc });
+            const shaft    = new THREE.Mesh(shaftGeo, shaftMat);
+            shaft.position.set(-7, 0, 0);
+            arrowGroup.add(shaft);
+
+            // Place in corner
+            arrowGroup.position.set(fs * 0.1, 30, -fs * 0.1);
+            this.scene.add(arrowGroup);
+            this.windArrow = arrowGroup;
+        }
+
+        seekToStep(step) {
+            this.currentStep = Math.max(0, Math.min(step, this.totalSteps));
+            document.getElementById('timeline-slider').value = this.currentStep;
+            this._updateScene(this.currentStep);
+        }
+
+        togglePlay() {
+            this.playing = !this.playing;
+            if (this.playing) this.lastTime = null;
+        }
+
+        _loop(now) {
+            this._rafId = requestAnimationFrame((t) => this._loop(t));
+
+            // Advance playback
+            if (this.playing && this.lastTime !== null) {
+                const dt  = (now - this.lastTime) / 1000; // seconds
+                this.stepAccum += dt * this.playbackSpeed * 15; // 15 steps/s base
+                if (this.stepAccum >= 1) {
+                    const advance = Math.floor(this.stepAccum);
+                    this.stepAccum -= advance;
+                    this.currentStep = Math.min(this.currentStep + advance, this.totalSteps);
+                    this._updateScene(this.currentStep);
+                    document.getElementById('timeline-slider').value = this.currentStep;
+                    if (this.currentStep >= this.totalSteps) {
+                        this.playing = false;
+                        document.getElementById('btn-play').textContent = '▶ Play';
+                    }
+                }
+            }
+            this.lastTime = now;
+
+            // Animate target ring pulse
+            if (this._targetRing) {
+                this._targetRing.scale.setScalar(1 + 0.06 * Math.sin(now * 0.003));
+            }
+            if (this._targetDisc) {
+                this._targetDisc.material.opacity = 0.12 + 0.1 * Math.sin(now * 0.002);
+            }
+
+            if (this.controls) this.controls.update();
+            this.renderer.render(this.scene, this.camera);
+        }
+
+        _updateScene(step) {
+            const data = this.data;
+            const agents = ['boat_0', 'boat_1'];
+
+            for (const agent of agents) {
+                const traj     = data.trajectories[agent];
+                const headings = data.headings[agent];
+                const speeds   = data.speeds[agent];
+                const s        = Math.min(step, traj.length - 1);
+                const [bx, by] = traj[s];
+                const heading  = headings[s];
+                const mesh     = this.boatMeshes[agent];
+
+                // Position (sim x→x, sim y→-z, altitude based on speed)
+                mesh.position.set(bx, 3 + speeds[s] * 0.3, -by);
+
+                // Heading: sim heading is angle in XY plane (0=east, π/2=north)
+                // Three.js: boat points along +X, rotates in XZ plane
+                // heading=0 → facing +X → no rotation
+                mesh.rotation.y = heading;
+
+                // Update trajectory line up to current step
+                const tl       = this.trajLines[agent];
+                const positions = tl.positions;
+                for (let i = 0; i <= s; i++) {
+                    const [tx, ty] = traj[i];
+                    positions[i * 3]     = tx;
+                    positions[i * 3 + 1] = 2;
+                    positions[i * 3 + 2] = -ty;
+                }
+                tl.line.geometry.attributes.position.needsUpdate = true;
+                tl.line.geometry.setDrawRange(0, s + 1);
+            }
+
+            // Wind arrow rotation (sim wind_direction = angle in XY → rotate around Y)
+            const wd = data.wind_directions[Math.min(step, data.wind_directions.length - 1)];
+            if (this.windArrow) {
+                // Point arrow where the wind is blowing (wind_direction is where it comes from)
+                this.windArrow.rotation.y = wd + Math.PI;
+            }
+
+            // HUD updates
+            document.getElementById('hud-step').textContent =
+                `Step ${step} / ${this.totalSteps}`;
+            const windDeg = Math.round(wd * 180 / Math.PI);
+            const ws = data.wind_speed ? data.wind_speed.toFixed(1) : '—';
+            document.getElementById('hud-wind').textContent =
+                `💨 ${ws} kn  ${windDeg}°`;
+
+            // Outcome at final step
+            const outcomeEl = document.getElementById('hud-outcome');
+            if (step >= this.totalSteps) {
+                outcomeEl.textContent = data.stats.outcome || '';
+                outcomeEl.style.display = 'block';
+            } else {
+                outcomeEl.style.display = 'none';
+            }
+        }
+
+        resize() {
+            if (!this.renderer) return;
+            const W = this.container.clientWidth;
+            const H = this.container.clientHeight || W;
+            this.camera.aspect = W / H;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(W, H);
+        }
+
+        dispose() {
+            if (this._rafId) cancelAnimationFrame(this._rafId);
+            if (this._ro) this._ro.disconnect();
+            if (this.renderer) {
+                this.renderer.dispose();
+                if (this.renderer.domElement.parentNode) {
+                    this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+                }
+            }
+        }
     }
 </script>
 </body>

@@ -7,7 +7,7 @@ from flask import Flask, render_template, request, jsonify, send_from_directory
 
 from config import DEFAULT_MODEL_PATH
 from train import train as run_training
-from simulate import load_model, run_episode
+from simulate import load_model, run_episode, run_episode_3d
 from evaluate import validate
 
 app = Flask(__name__)
@@ -140,7 +140,18 @@ def simulate():
             "triple_turns": ai.get("triple_turns", 0),
         }
 
-    return jsonify({"video_url": f"/static/{video_name}", "stats": stats})
+    return jsonify({
+        "video_url": f"/static/{video_name}",
+        "stats": stats,
+        "trajectories":    result["trajectories"],
+        "headings":        result["headings"],
+        "speeds":          result["speeds"],
+        "wind_directions": result["wind_directions"],
+        "target":          result["target"],
+        "field_size":      result["field_size"],
+        "wind_speed":      result["wind_speed"],
+    })
+
 
 test_state = {
     "running": False,
